@@ -7,8 +7,13 @@ using namespace std;
 
 struct FIVE_TUPLE
 {
-    char key[13];
+    uint32_t srcIP;
+    uint32_t dstIP;
+    uint16_t srcPort;
+    uint16_t dstPort;
+    uint8_t protocal;
 };
+
 typedef vector<FIVE_TUPLE> TRACE;
 TRACE traces;
 mutex mtx;
@@ -64,36 +69,38 @@ void send_sketch(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic)
     delete cur_elastic;
 }
 
+void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_char *packet)
+{
+    cout << ++packetCount << " packet(s) captured" << endl;
+}
+
 int main()
 {
-    pid_t pid[11];
-    for (int k = 0; k <= 10; ++k){
-        pid[k] = fork();
-        if (pid[k] < 0){
-            printf("Create child process failed!\n");
-        }
-        else if (pid[k] == 0){
-            char fileName[20];
-            sprintf(fileName, "../data/%d.dat", k);
-            FILE *fp = fopen(fileName, "rb");
-            FIVE_TUPLE tmp_five_tuple;
-            uint8_t tmp_f;
-            while (fread(&tmp_five_tuple, 1, 13, fp) == 13)
-            {
-                traces.push_back(tmp_five_tuple);
-            }
-            fclose(fp);
-            ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = new ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>();
-            printf("Successfully read in %s, %ld packets\n", fileName, traces.size());
-            thread monitor(send_sketch, elastic);
-            for (int i = 0; i < traces.size(); ++i)
-            {
-                thread t(update_sketch, elastic, ref(traces[i]));
-                t.detach();
-            }
-            monitor.join();
-            break;
-        }
+    char *dev;
+    pcap_t *descr;
+    char errbuf[PCAP_ERRBUF_SIZE];
+
+    dev = pcap_lookupdev(errbuf);
+    if (dev == NULL)
+    {
+        cout << "pcap_lookupdev() failed: " << errbuf << endl;
+        return 1;
     }
-    waitpid(0, NULL, 0);
+
+    descr = pcap_open_live(dev, BUFSIZ, 0, -1, errbuf);
+    if (descr == NULL)
+    {
+        cout << "pcap_open_live() failed: " << errbuf << endl;
+        return 1;
+    }
+
+    if (pcap_loop(descr, 10, packetHandler, NULL) < 0)
+    {
+        cout << "pcap_loop() failed: " << pcap_geterr(descr);
+        return 1;
+    }
+
+    cout << "capture finished" << endl;
+
+    return 0;
 }

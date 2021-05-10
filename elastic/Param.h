@@ -3,6 +3,7 @@
 
 #include "../common/BOBHash32.h"
 
+#include <pcap.h>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
