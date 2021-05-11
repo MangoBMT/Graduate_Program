@@ -7,13 +7,17 @@ template <int bucket_num>
 class HeavyPart
 {
 public:
-    alignas(64) Bucket buckets[bucket_num];
-
+    alignas(8) Bucket buckets[bucket_num];
+    BOBHash32 *bobhash = NULL;
     HeavyPart()
     {
         clear();
+        uint32_t index = 1999;
+        bobhash = new BOBHash32(index % MAX_PRIME32);
     }
-    ~HeavyPart() {}
+    ~HeavyPart() {
+        delete bobhash;
+    }
 
     void clear()
     {
@@ -21,22 +25,23 @@ public:
     }
 
     /* insertion */
-    int insert(uint8_t *key, uint8_t *swap_key, uint32_t &swap_val, uint32_t f = 1)
+    int insert(unsigned char *key, unsigned char *swap_key, uint32_t &swap_val, uint32_t f = 1)
     {
-        uint32_t fp;
-        int pos = CalculateFP(key, fp);
-
+        int pos = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13) % (uint32_t)bucket_num;
+        char zero_str = new char[KEY_LENGTH_13];
+        memset(zero_str, 0, sizeof(char) * KEY_LENGTH_13)
         /* find if there has matched bucket */
         int matched = -1, empty = -1, min_counter = 0;
         uint32_t min_counter_val = GetCounterVal(buckets[pos].val[0]);
         for (int i = 0; i < COUNTER_PER_BUCKET - 1; i++)
         {
-            if (buckets[pos].key[i] == fp)
+            if (strncmp(buckets[pos].key[i], key, KEY_LENGTH_13) == 0)
             {
                 matched = i;
                 break;
             }
-            if (buckets[pos].key[i] == 0 && empty == -1)
+            // if src and dst ports both are 0, the bucket should be empty.
+            if (strncmp(buckets[pos].key[i], zero_str, KEY_LENGTH_13) == 0 && empty == -1)
                 empty = i;
             if (min_counter_val > GetCounterVal(buckets[pos].val[i]))
             {
@@ -44,7 +49,7 @@ public:
                 min_counter_val = GetCounterVal(buckets[pos].val[i]);
             }
         }
-
+        delete []zero_str; 
         /* if matched */
         if (matched != -1)
         {
@@ -55,7 +60,7 @@ public:
         /* if there has empty bucket */
         if (empty != -1)
         {
-            buckets[pos].key[empty] = fp;
+            strncpy(buckets[pos].key[empty], key, KEY_LENGTH_13);
             buckets[pos].val[empty] = f;
             return 0;
         }
@@ -70,25 +75,24 @@ public:
             return 2;
         }
 
-        *((uint32_t *)swap_key) = buckets[pos].key[min_counter];
+        strncpy(swap_key, buckets[pos].key[min_counter], KEY_LENGTH_13);
         swap_val = buckets[pos].val[min_counter];
 
         buckets[pos].val[MAX_VALID_COUNTER] = 0;
 
-        buckets[pos].key[min_counter] = fp;
+        strncpy(buckets[pos].key[min_counter], key, KEY_LENGTH_13);
         buckets[pos].val[min_counter] = 0x80000001;
 
         return 1;
     }
 
     /* query */
-    uint32_t query(uint8_t *key)
+    uint32_t query(unsigned char *key)
     {
-        uint32_t fp;
-        int pos = CalculateFP(key, fp);
+        int pos = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13) % (uint32_t)bucket_num;
 
         for (int i = 0; i < MAX_VALID_COUNTER; ++i)
-            if (buckets[pos].key[i] == fp)
+            if (strncmp(buckets[pos].key[i], key, KEY_LENGTH_13) == 0)
                 return buckets[pos].val[i];
 
         return 0;
@@ -102,13 +106,6 @@ public:
     int get_bucket_num()
     {
         return bucket_num;
-    }
-
-private:
-    int CalculateFP(uint8_t *key, uint32_t &fp)
-    {
-        fp = *((uint32_t *)key);
-        return CalculateBucketPos(fp) % bucket_num;
     }
 };
 

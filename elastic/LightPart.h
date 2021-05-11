@@ -18,8 +18,8 @@ public:
     LightPart()
     {
         clear();
-        std::random_device rd;
-        bobhash = new BOBHash32(rd() % MAX_PRIME32);
+        uint32_t index = 323;
+        bobhash = new BOBHash32(index % MAX_PRIME32);
     }
     ~LightPart()
     {
@@ -33,9 +33,9 @@ public:
     }
 
     /* insertion */
-    void insert(uint8_t *key, int f = 1)
+    void insert(unsigned char *key, int f = 1)
     {
-        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_4);
+        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13);
         uint32_t pos = hash_val % (uint32_t)counter_num;
 
         int old_val = (int)counters[pos];
@@ -48,9 +48,9 @@ public:
         mice_dist[new_val]++;
     }
 
-    void swap_insert(uint8_t *key, int f)
+    void swap_insert(unsigned char *key, int f)
     {
-        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_4);
+        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13);
         uint32_t pos = hash_val % (uint32_t)counter_num;
 
         f = f < 255 ? f : 255;
@@ -66,9 +66,9 @@ public:
     }
 
     /* query */
-    int query(uint8_t *key)
+    int query(unsigned char *key)
     {
-        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_4);
+        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13);
         uint32_t pos = hash_val % (uint32_t)counter_num;
 
         return (int)counters[pos];
@@ -88,9 +88,9 @@ public:
         }
     }
 
-    int query_compressed_part(uint8_t *key, uint8_t *compress_part, int compress_counter_num)
+    int query_compressed_part(unsigned char *key, unsigned char *compress_part, int compress_counter_num)
     {
-        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_4);
+        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13);
         uint32_t pos = (hash_val % (uint32_t)counter_num) % compress_counter_num;
 
         return (int)compress_part[pos];

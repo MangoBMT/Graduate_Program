@@ -22,9 +22,9 @@ public:
         light_part.clear();
     }
 
-    void insert(uint8_t *key, int f = 1)
+    void insert(unsigned char *key, int f = 1)
     {
-        uint8_t swap_key[KEY_LENGTH_4];
+        unsigned char swap_key[KEY_LENGTH_13];
         uint32_t swap_val = 0;
         int result = heavy_part.insert(key, swap_key, swap_val, f);
 
@@ -49,8 +49,7 @@ public:
         }
     }
 
-
-    int query(uint8_t *key)
+    int query(unsigned char *key)
     {
         uint32_t heavy_result = heavy_part.query(key);
         if (heavy_result == 0 || HIGHEST_BIT_IS_1(heavy_result))
@@ -61,7 +60,7 @@ public:
         return heavy_result;
     }
 
-    int query_compressed_part(uint8_t *key, uint8_t *compress_part, int compress_counter_num)
+    int query_compressed_part(unsigned char *key, unsigned char *compress_part, int compress_counter_num)
     {
         uint32_t heavy_result = heavy_part.query(key);
         if (heavy_result == 0 || HIGHEST_BIT_IS_1(heavy_result))
@@ -77,11 +76,12 @@ public:
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                uint32_t key = heavy_part.buckets[i].key[j];
-                int val = query((uint8_t *)&key);
+                unsigned char key[13];
+                strncpy(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
+                int val = query((unsigned char *)key);
                 if (val >= threshold)
                 {
-                    results.push_back(make_pair(string((const char *)&key, 4), val));
+                    results.push_back(make_pair(string((unsigned char *)key, 13), val));
                 }
             }
     }
@@ -93,7 +93,7 @@ public:
     double get_bandwidth(int compress_ratio)
     {
         int result = heavy_part.get_memory_usage();
-        result += get_compress_width(compress_ratio) * sizeof(uint8_t);
+        result += get_compress_width(compress_ratio) * sizeof(char);
         return result * 1.0 / 1024 / 1024;
     }
 
@@ -103,8 +103,8 @@ public:
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                uint8_t key[KEY_LENGTH_4];
-                *(uint32_t *)key = heavy_part.buckets[i].key[j];
+                unsigned char key[KEY_LENGTH_13];
+                strncpy(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
                 int val = heavy_part.buckets[i].val[j];
                 int ex_val = light_part.query(key);
 
@@ -129,8 +129,8 @@ public:
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                uint8_t key[KEY_LENGTH_4];
-                *(uint32_t *)key = heavy_part.buckets[i].key[j];
+                unsigned char key[KEY_LENGTH_13];
+                strncmp(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
                 int val = heavy_part.buckets[i].val[j];
 
                 int ex_val = light_part.query(key);
@@ -160,8 +160,8 @@ public:
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                uint8_t key[KEY_LENGTH_4];
-                *(uint32_t *)key = heavy_part.buckets[i].key[j];
+                unsigned char key[KEY_LENGTH_13];
+                strncmp(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
                 int val = heavy_part.buckets[i].val[j];
 
                 int ex_val = light_part.query(key);
@@ -181,7 +181,7 @@ public:
             }
     }
 
-    void *operator new(size_t sz)
+    /*void *operator new(size_t sz)
     {
         constexpr uint32_t alignment = 64;
         size_t alloc_size = (2 * alignment + sz) / alignment * alignment;
@@ -195,7 +195,7 @@ public:
     void operator delete(void *p)
     {
         ::operator delete(((void **)p)[-1]);
-    }
+    }*/
 };
 
 #endif

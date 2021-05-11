@@ -1,10 +1,12 @@
 #include "../elastic/ElasticSketch.h"
 using namespace std;
 
-#define HEAVY_MEM (128 * 1024)
-#define BUCKET_NUM (HEAVY_MEM / 64)
+#define HEAVY_MEM (136 * 1024)
+#define BUCKET_NUM (HEAVY_MEM / 136)
 #define TOT_MEM_IN_BYTES (512 * 1024)
 
+#define SERV_IP "172.18.0.1"
+#define SERV_PORT 32399
 struct FIVE_TUPLE
 {
     uint32_t srcIP;
@@ -14,67 +16,34 @@ struct FIVE_TUPLE
     uint8_t protocal;
 };
 
+ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = new ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>();
 typedef vector<FIVE_TUPLE> TRACE;
 TRACE traces;
 mutex mtx;
 
-void update_sketch(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic, FIVE_TUPLE &tmp_five_tuple)
-{
-    int f = rand() % 3 + 1;
-    mtx.lock();
-    elastic->insert((uint8_t *)(tmp_five_tuple.key), f);
-    mtx.unlock();
-}
-
-void send_sketch(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic)
-{
-    ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *cur_elastic = new ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>();
-    mtx.lock();
-    memcpy(cur_elastic, elastic, TOT_MEM_IN_BYTES);
-    mtx.unlock();
-    // deliver sketch constantly.
-    for (int j = 0; j < 100; ++j)
-    {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-        vector<pair<string, int>> heavy_hitters;
-        cur_elastic->get_heavy_hitters(2000, heavy_hitters);
-        vector<double> dist;
-        cur_elastic->get_distribution(dist);
-        printf("est_cardinality=%d\t", cur_elastic->get_cardinality());
-        printf("entropy=%.3lf\n", cur_elastic->get_entropy());
-        /*printf("flow size distribution: <flow size, count>\n");
-        for (int i = 0, j = 0; i < (int)dist.size(); ++i)
-            if (dist[i] > 0)
-            {
-                printf("<%d, %d>", i, (int)dist[i]);
-                if (++j % 10 == 0)
-                    printf("\n");
-                else
-                    printf("\t");
-            }
-        printf("\n");
-        printf("heavy hitters: <srcIP, count>, threshold=%d\n", 2000);
-        for (int i = 0, j = 0; i < (int)heavy_hitters.size(); ++i)
-        {
-            uint32_t srcIP;
-            memcpy(&srcIP, heavy_hitters[i].first.c_str(), 4);
-            printf("<%.8x, %d>", srcIP, heavy_hitters[i].second);
-            if (++j % 5 == 0)
-                printf("\n");
-            else
-                printf("\t");
-        }
-        printf("\n");*/
-    }
-    delete cur_elastic;
-}
-
 void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_char *packet)
 {
-    cout << ++packetCount << " packet(s) captured" << endl;
+    struct FIVE_TUPLE *quintet = new struct FIVE_TUPLE;
+    uint8_t *key = new uint8_t[13];
+    unsigned char *content = new unsigned char[65535];
+    //unsigned int len = pkthdr->len;
+    unsigned int len = 1;
+    memcpy(content, (const unsigned char *)packet, (int)pkthdr->caplen);
+    quintet->srcIP = (uint32_t)(content + 26);
+    quintet->dstIP = (uint32_t)(content + 30);
+    quintet->srcPort = (uint16_t)(content + 34);
+    quintet->dstPort = (uint16_t)(content + 36);
+    quintet->protocal = (uint8_t)(content + 23);
+    memcpy(key, quintet, sizeof(quintet));
+    mtx.lock();
+    elastic->insert(key, len);
+    mtx.unlock();
+    delete quintet;
+    delete key;
+    delete content;
 }
 
-int main()
+void packetCapture()
 {
     char *dev;
     pcap_t *descr;
@@ -84,23 +53,51 @@ int main()
     if (dev == NULL)
     {
         cout << "pcap_lookupdev() failed: " << errbuf << endl;
-        return 1;
+        return;
     }
-
     descr = pcap_open_live(dev, BUFSIZ, 0, -1, errbuf);
     if (descr == NULL)
     {
         cout << "pcap_open_live() failed: " << errbuf << endl;
-        return 1;
+        return;
     }
-
-    if (pcap_loop(descr, 10, packetHandler, NULL) < 0)
+    if (pcap_loop(descr, -1, packetHandler, NULL) < 0)
     {
         cout << "pcap_loop() failed: " << pcap_geterr(descr);
-        return 1;
+        return;
     }
+}
 
-    cout << "capture finished" << endl;
+void deliverSketch()
+{
+    int cfd;
+    struct sockaddr_in serv_addr;
+    char *buf = NULL;
+    buf = (char*)malloc(TOT_MEM_IN_BYTES *  sizeof(char));
 
-    return 0;
+    cfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(SERV_PORT);
+    inet_pton(AF_INET, SERV_IP, &serv_addr.sin_addr.s_addr);
+
+    connect(cfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    while(true){
+        this_thread::sleep_for(chrono::seconds(1));
+        mtx.lock();
+        memcpy(buf, elastic, TOT_MEM_IN_BYTES);
+        mtx.unlock();
+        sned(cfd, buf, TOT_MEM_IN_BYTES, 0);
+    }
+    close(cfd);
+    free(buf);
+}
+
+int main()
+{
+    thread pcap(packetCapture);
+    thread monitor(deliverSketch);
+    pcap.join();
+    monitor.join();
 }
