@@ -45,7 +45,7 @@
 
 struct Bucket
 {
-    unsigned char key[COUNTER_PER_BUCKET][13];
+    unsigned char key[COUNTER_PER_BUCKET - 1][13];
     uint32_t val[COUNTER_PER_BUCKET];
 };
 

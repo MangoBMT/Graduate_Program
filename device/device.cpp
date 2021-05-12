@@ -1,8 +1,13 @@
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
 #include "../elastic/ElasticSketch.h"
 using namespace std;
 
-#define HEAVY_MEM (136 * 1024)
-#define BUCKET_NUM (HEAVY_MEM / 136)
+#define HEAVY_MEM (128 * 1024)
+#define BUCKET_NUM (HEAVY_MEM / 128)
 #define TOT_MEM_IN_BYTES (512 * 1024)
 
 #define SERV_IP "172.18.0.1"
@@ -24,7 +29,7 @@ mutex mtx;
 void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_char *packet)
 {
     struct FIVE_TUPLE *quintet = new struct FIVE_TUPLE;
-    uint8_t *key = new uint8_t[13];
+    unsigned char *key = new unsigned char[13];
     unsigned char *content = new unsigned char[65535];
     //unsigned int len = pkthdr->len;
     unsigned int len = 1;
@@ -39,8 +44,8 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
     elastic->insert(key, len);
     mtx.unlock();
     delete quintet;
-    delete key;
-    delete content;
+    delete []key;
+    delete []content;
 }
 
 void packetCapture()
@@ -88,7 +93,7 @@ void deliverSketch()
         mtx.lock();
         memcpy(buf, elastic, TOT_MEM_IN_BYTES);
         mtx.unlock();
-        sned(cfd, buf, TOT_MEM_IN_BYTES, 0);
+        send(cfd, buf, TOT_MEM_IN_BYTES, 0);
     }
     close(cfd);
     free(buf);

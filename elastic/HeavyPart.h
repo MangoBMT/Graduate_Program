@@ -7,7 +7,7 @@ template <int bucket_num>
 class HeavyPart
 {
 public:
-    alignas(8) Bucket buckets[bucket_num];
+    alignas(64) Bucket buckets[bucket_num];
     BOBHash32 *bobhash = NULL;
     HeavyPart()
     {
@@ -40,7 +40,6 @@ public:
                 matched = i;
                 break;
             }
-            // if src and dst ports both are 0, the bucket should be empty.
             if (strncmp(buckets[pos].key[i], zero_str, KEY_LENGTH_13) == 0 && empty == -1)
                 empty = i;
             if (min_counter_val > GetCounterVal(buckets[pos].val[i]))

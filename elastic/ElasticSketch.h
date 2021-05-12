@@ -138,9 +138,7 @@ public:
                 if (HIGHEST_BIT_IS_1(val) && ex_val)
                 {
                     val += ex_val;
-
                     tot -= ex_val;
-
                     entr -= ex_val * log2(ex_val);
                 }
                 val = GetCounterVal(val);
