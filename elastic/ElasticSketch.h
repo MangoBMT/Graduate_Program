@@ -7,13 +7,13 @@
 template <int bucket_num, int tot_memory_in_bytes>
 class ElasticSketch
 {
+public:
     static constexpr int heavy_mem = bucket_num * COUNTER_PER_BUCKET * 8;
     static constexpr int light_mem = tot_memory_in_bytes - heavy_mem;
 
     HeavyPart<bucket_num> heavy_part;
     LightPart<light_mem> light_part;
 
-public:
     ElasticSketch() {}
     ~ElasticSketch() {}
     void clear()
@@ -22,9 +22,9 @@ public:
         light_part.clear();
     }
 
-    void insert(unsigned char *key, int f = 1)
+    void insert(char *key, int f = 1)
     {
-        unsigned char swap_key[KEY_LENGTH_13];
+        char swap_key[KEY_LENGTH_13];
         uint32_t swap_val = 0;
         int result = heavy_part.insert(key, swap_key, swap_val, f);
 
@@ -49,7 +49,7 @@ public:
         }
     }
 
-    int query(unsigned char *key)
+    int query(char *key)
     {
         uint32_t heavy_result = heavy_part.query(key);
         if (heavy_result == 0 || HIGHEST_BIT_IS_1(heavy_result))
@@ -60,7 +60,7 @@ public:
         return heavy_result;
     }
 
-    int query_compressed_part(unsigned char *key, unsigned char *compress_part, int compress_counter_num)
+    int query_compressed_part(char *key, char *compress_part, int compress_counter_num)
     {
         uint32_t heavy_result = heavy_part.query(key);
         if (heavy_result == 0 || HIGHEST_BIT_IS_1(heavy_result))
@@ -76,12 +76,12 @@ public:
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                unsigned char key[13];
+                char key[13];
                 strncpy(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
-                int val = query((unsigned char *)key);
+                int val = query((char *)key);
                 if (val >= threshold)
                 {
-                    results.push_back(make_pair(string((unsigned char *)key, 13), val));
+                    results.push_back(make_pair(string((char *)key, KEY_LENGTH_13), val));
                 }
             }
     }
@@ -103,7 +103,7 @@ public:
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                unsigned char key[KEY_LENGTH_13];
+                char key[KEY_LENGTH_13];
                 strncpy(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
                 int val = heavy_part.buckets[i].val[j];
                 int ex_val = light_part.query(key);
@@ -129,7 +129,7 @@ public:
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                unsigned char key[KEY_LENGTH_13];
+                char key[KEY_LENGTH_13];
                 strncmp(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
                 int val = heavy_part.buckets[i].val[j];
 
@@ -151,14 +151,14 @@ public:
         return -entr / tot + log2(tot);
     }
 
-    void get_distribution(vector<double> &dist)
+    void get_distribution(vector<int> &dist)
     {
         light_part.get_distribution(dist);
 
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                unsigned char key[KEY_LENGTH_13];
+                char key[KEY_LENGTH_13];
                 strncmp(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
                 int val = heavy_part.buckets[i].val[j];
 

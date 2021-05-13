@@ -28,39 +28,40 @@ mutex mtx;
 
 void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_char *packet)
 {
+    //printf("1 packet captured.\n");
     struct FIVE_TUPLE *quintet = new struct FIVE_TUPLE;
-    unsigned char *key = new unsigned char[13];
-    unsigned char *content = new unsigned char[65535];
+    char *key = new char[13];
+    char *content = new char[65535];
     //unsigned int len = pkthdr->len;
     unsigned int len = 1;
-    memcpy(content, (const unsigned char *)packet, (int)pkthdr->caplen);
-    quintet->srcIP = (uint32_t)(content + 26);
-    quintet->dstIP = (uint32_t)(content + 30);
-    quintet->srcPort = (uint16_t)(content + 34);
-    quintet->dstPort = (uint16_t)(content + 36);
-    quintet->protocal = (uint8_t)(content + 23);
+    memcpy(content, (const char *)packet, (int)pkthdr->caplen);
+    quintet->srcIP = *(uint32_t *)(content + 26);
+    quintet->dstIP = *(uint32_t *)(content + 30);
+    quintet->srcPort = *(uint16_t *)(content + 34);
+    quintet->dstPort = *(uint16_t *)(content + 36);
+    quintet->protocal = *(uint8_t *)(content + 23);
     memcpy(key, quintet, sizeof(quintet));
     mtx.lock();
     elastic->insert(key, len);
     mtx.unlock();
     delete quintet;
-    delete []key;
-    delete []content;
+    delete[] key;
+    delete[] content;
 }
 
 void packetCapture()
 {
-    char *dev;
+    int f;
     pcap_t *descr;
+    pcap_if_t *alldevs;
     char errbuf[PCAP_ERRBUF_SIZE];
-
-    dev = pcap_lookupdev(errbuf);
-    if (dev == NULL)
+    f = pcap_findalldevs(&alldevs, errbuf);
+    if (f == -1)
     {
         cout << "pcap_lookupdev() failed: " << errbuf << endl;
         return;
     }
-    descr = pcap_open_live(dev, BUFSIZ, 0, -1, errbuf);
+    descr = pcap_open_live(alldevs->name, BUFSIZ, 0, -1, errbuf);
     if (descr == NULL)
     {
         cout << "pcap_open_live() failed: " << errbuf << endl;
@@ -78,7 +79,7 @@ void deliverSketch()
     int cfd;
     struct sockaddr_in serv_addr;
     char *buf = NULL;
-    buf = (char*)malloc(TOT_MEM_IN_BYTES *  sizeof(char));
+    buf = (char *)malloc(TOT_MEM_IN_BYTES * sizeof(char));
 
     cfd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -88,12 +89,14 @@ void deliverSketch()
     inet_pton(AF_INET, SERV_IP, &serv_addr.sin_addr.s_addr);
 
     connect(cfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-    while(true){
+    while (true)
+    {
         this_thread::sleep_for(chrono::seconds(1));
         mtx.lock();
         memcpy(buf, elastic, TOT_MEM_IN_BYTES);
         mtx.unlock();
         send(cfd, buf, TOT_MEM_IN_BYTES, 0);
+        printf("sketch sent.\n");
     }
     close(cfd);
     free(buf);

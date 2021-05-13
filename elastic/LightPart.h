@@ -7,10 +7,11 @@
 template <int init_mem_in_bytes>
 class LightPart
 {
+public:
     static constexpr int counter_num = init_mem_in_bytes;
     BOBHash32 *bobhash = NULL;
 
-public:
+
     uint8_t counters[counter_num];
     int mice_dist[256];
     EMFSD *em_fsd_algo = NULL;
@@ -33,9 +34,9 @@ public:
     }
 
     /* insertion */
-    void insert(unsigned char *key, int f = 1)
+    void insert(char *key, int f = 1)
     {
-        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13);
+        uint32_t hash_val = (uint32_t)bobhash->run((char *)key, KEY_LENGTH_13);
         uint32_t pos = hash_val % (uint32_t)counter_num;
 
         int old_val = (int)counters[pos];
@@ -48,9 +49,9 @@ public:
         mice_dist[new_val]++;
     }
 
-    void swap_insert(unsigned char *key, int f)
+    void swap_insert(char *key, int f)
     {
-        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13);
+        uint32_t hash_val = (uint32_t)bobhash->run((char *)key, KEY_LENGTH_13);
         uint32_t pos = hash_val % (uint32_t)counter_num;
 
         f = f < 255 ? f : 255;
@@ -66,9 +67,9 @@ public:
     }
 
     /* query */
-    int query(unsigned char *key)
+    int query(char *key)
     {
-        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13);
+        uint32_t hash_val = (uint32_t)bobhash->run((char *)key, KEY_LENGTH_13);
         uint32_t pos = hash_val % (uint32_t)counter_num;
 
         return (int)counters[pos];
@@ -88,9 +89,9 @@ public:
         }
     }
 
-    int query_compressed_part(unsigned char *key, unsigned char *compress_part, int compress_counter_num)
+    int query_compressed_part(char *key, char *compress_part, int compress_counter_num)
     {
-        uint32_t hash_val = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13);
+        uint32_t hash_val = (uint32_t)bobhash->run((char *)key, KEY_LENGTH_13);
         uint32_t pos = (hash_val % (uint32_t)counter_num) % compress_counter_num;
 
         return (int)compress_part[pos];
@@ -120,7 +121,7 @@ public:
         }
     }
 
-    void get_distribution(vector<double> &dist)
+    void get_distribution(vector<int> &dist)
     {
         uint32_t tmp_counters[counter_num];
         for (int i = 0; i < counter_num; i++)
@@ -140,7 +141,12 @@ public:
         em_fsd_algo->next_epoch();
         em_fsd_algo->next_epoch();
 
-        dist = em_fsd_algo->ns;
+        vector<double> tmp;
+        tmp = em_fsd_algo->ns;
+        dist.resize(tmp.size());
+        for (int i = 0; i < tmp.size(); ++i){
+            dist[i] = int(tmp[i]);
+        }
     }
 };
 

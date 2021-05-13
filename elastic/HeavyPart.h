@@ -25,11 +25,11 @@ public:
     }
 
     /* insertion */
-    int insert(unsigned char *key, unsigned char *swap_key, uint32_t &swap_val, uint32_t f = 1)
+    int insert(char *key, char *swap_key, uint32_t &swap_val, uint32_t f = 1)
     {
-        int pos = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13) % (uint32_t)bucket_num;
-        char zero_str = new char[KEY_LENGTH_13];
-        memset(zero_str, 0, sizeof(char) * KEY_LENGTH_13)
+        int pos = (uint32_t)bobhash->run((char *)key, KEY_LENGTH_13) % (uint32_t)bucket_num;
+        char* zero_str = new char[KEY_LENGTH_13];
+        memset(zero_str, 0, sizeof(char) * KEY_LENGTH_13);
         /* find if there has matched bucket */
         int matched = -1, empty = -1, min_counter = 0;
         uint32_t min_counter_val = GetCounterVal(buckets[pos].val[0]);
@@ -86,9 +86,9 @@ public:
     }
 
     /* query */
-    uint32_t query(unsigned char *key)
+    uint32_t query(char *key)
     {
-        int pos = (uint32_t)bobhash->run((const char *)key, KEY_LENGTH_13) % (uint32_t)bucket_num;
+        int pos = (uint32_t)bobhash->run((char *)key, KEY_LENGTH_13) % (uint32_t)bucket_num;
 
         for (int i = 0; i < MAX_VALID_COUNTER; ++i)
             if (strncmp(buckets[pos].key[i], key, KEY_LENGTH_13) == 0)
