@@ -44,7 +44,7 @@ int id;
     "algorithm": string,
     "cardinality": int,
     "entropy": double, 
-    "heavy_part": list of 5-tuples + flow size + swap flag,
+    "heavy_part": list of 5-tuples + flow size,
     "distribution": list of int,
 }
 */
@@ -54,40 +54,48 @@ void makeJSON(char *json)
     ++id;
     int cardinality = 0;
     double entropy;
-    vector<int> dist;
-    vector<pair<FIVE_TUPLE, int> > heavy_part;
+    vector<vector<int> > dist;
+    vector<pair<FIVE_TUPLE, int>> heavy_part;
     int tot;
     double entr;
-    time_t cur_time = time(0);
-    for (SketchRepository::iterator it = sketches.begin(); it != sketches.end(); ++it){
-        ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = new ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>();
-        mtx.lock();
-        memcpy(elastic, (*it), TOT_MEM_IN_BYTES);
-        mtx.unlock();
 
+    time_t raw_time;
+    struct tm timeinfo;
+    time(&raw_time);
+    timeinfo = *(localtime(&raw_time));
+
+    for (SketchRepository::iterator it = sketches.begin(); it != sketches.end(); ++it)
+    {
+        ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = (ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *)malloc(sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
+        mtx.lock();
+        if ((*it) == NULL){
+            free(elastic);
+            continue;
+        }
+        memcpy(elastic, (*it), sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
+        mtx.unlock();
         vector<int> tmp_dist;
         elastic->get_distribution(tmp_dist);
-        if (tmp_dist.size() > dist.size()){
-            dist.resize(tmp_dist.size());
-        }
-        for (int i = 0; i < tmp_dist.size(); ++i){
-            dist[i] += tmp_dist[i];
-        }
+        dist.push_back(tmp_dist);
 
-        vector<pair<string, int> > tmp_heavy_part;
+        vector<pair<string, int>> tmp_heavy_part;
         elastic->get_heavy_hitters(0, tmp_heavy_part);
-        for (int i = 0; i < tmp_heavy_part.size(); ++i){
+        for (int i = 0; i < tmp_heavy_part.size(); ++i)
+        {
             FIVE_TUPLE *quintet = (FIVE_TUPLE *)malloc(KEY_LENGTH_13 * sizeof(char));
             memcpy(quintet, &(tmp_heavy_part[i].first), KEY_LENGTH_13);
             heavy_part.push_back(make_pair((*quintet), tmp_heavy_part[i].second));
+            free(quintet);
         }
 
         cardinality += elastic->get_cardinality();
 
         for (int i = 1; i < 256; i++)
             tot += elastic->light_part.mice_dist[i] * i;
-        for (int i = 0; i < BUCKET_NUM; ++i){
-            for (int j = 0; j < MAX_VALID_COUNTER; ++j){
+        for (int i = 0; i < BUCKET_NUM; ++i)
+        {
+            for (int j = 0; j < MAX_VALID_COUNTER; ++j)
+            {
                 char key[KEY_LENGTH_13];
                 strncmp(key, elastic->heavy_part.buckets[i].key[j], KEY_LENGTH_13);
                 int val = elastic->heavy_part.buckets[i].val[j];
@@ -106,87 +114,126 @@ void makeJSON(char *json)
                 }
             }
         }
+        free(elastic);
     }
     entropy = -entr / tot + log2(tot);
 
-    sprintf(json, "{");
-    sprintf(json, "\"ID\":%d,", id);
-    sprintf(json, "\"Algorithm\":\"elastic\",");
-    sprintf(json, "\"time\":%s,", ctime(&cur_time));
-    sprintf(json, "\"cardinality\":%d,", cardinality);
-    sprintf(json, "\"cardinality\":%lf,", entropy);
-    sprintf(json, "\"heavy part\":[");
-    for (int i = 0; i < heavy_part.size(); ++i){
+    int offset = 0;
+    offset += sprintf(json + offset, "{");
+    offset += sprintf(json + offset, "\"ID\":%d,", id);
+    offset += sprintf(json + offset, "\"Algorithm\":\"elastic\",");
+    offset += sprintf(json + offset, "\"Time\":\"%s", asctime(&timeinfo));
+    --offset;
+    offset += sprintf(json + offset, "\",\"Cardinality\":%d,", cardinality);
+    offset += sprintf(json + offset, "\"Entropy\":%lf,", entropy);
+    offset += sprintf(json + offset, "\"HeavyPart\":[");
+    for (int i = 0; i < heavy_part.size(); ++i)
+    {
         FIVE_TUPLE quintet = heavy_part[i].first;
         int f = heavy_part[i].second;
-        sprintf(json, "[%u,%u,%d,%d,%d,%d],", quintet.srcIP, quintet.dstIP, quintet.srcPort, quintet.dstPort, quintet.protocal, f);
+        offset += sprintf(json + offset, "[%u,%u,%d,%d,%d,%d]", quintet.srcIP, quintet.dstIP, quintet.srcPort, quintet.dstPort, quintet.protocal, f);
+        if (i != (heavy_part.size() - 1))
+            offset += sprintf(json + offset, ",");
     }
-    sprintf(json, "],");
-    sprintf(json, "\"distribution\":[");
-    for (int i = 1; i < dist.size(); ++i){
-        if (dist[i] > 0){
-            sprintf(json, "[%d,%d],", i, dist[i]);
+    offset += sprintf(json + offset, "],");
+    offset += sprintf(json + offset, "\"Distribution\":[");
+    for (int i = 0; i < dist.size(); ++i)
+    {
+        vector<int> tmp = dist[i];
+        offset += sprintf(json + offset, "[");
+        for (int j = 1; j < tmp.size(); ++j){
+            offset += sprintf(json + offset, "(%d,%d)", j, tmp[j]);
+            if (j != (tmp.size() - 1))
+                offset += sprintf(json + offset, ",");
         }
+        offset += sprintf(json + offset, "]");
+        if (i != (dist.size() - 1))
+            offset += sprintf(json + offset, ",");
     }
-    sprintf(json, "]");
-    sprintf(json, "}\r\n");
+    offset += sprintf(json + offset, "]");
+    offset += sprintf(json + offset, "}\r\n");
 }
 
 void sendMsg()
 {
     thread_args *targs = (thread_args *)malloc(sizeof(thread_args));
     char *buf = (char *)malloc(MAX_LENGTH * sizeof(char));
+    char *json = (char *)malloc(MAX_LENGTH * sizeof(char));
 
     targs->connectfd = socket(AF_INET, SOCK_STREAM, 0);
     targs->addr.sin_family = AF_INET;
     targs->addr.sin_port = htons(SERV_PORT);
     inet_pton(AF_INET, SERV_IP, &targs->addr.sin_addr.s_addr);
     connect(targs->connectfd, (struct sockaddr *)&targs->addr, sizeof(targs->addr));
-    printf("The connection to %s:%d has established.\n", SERV_IP, SERV_PORT);
-    
+    printf("The connection to %s:%d has been established.\n", SERV_IP, SERV_PORT);
+
     char header[1023];
+    int offset = 0;
     memset(header, 0, 1023);
-    strcat(header, "POST /post HTTP/1.1\r\n");
-    sprintf(header, "Host: ");
-    sprintf(header, "%s:%d\r\n", SERV_IP, SERV_PORT);
-    strcat(header, "Content-Type: application/json\r\n");
+    offset += sprintf(header + offset, "POST /post HTTP/1.1\r\n");
+    offset += sprintf(header + offset, "Host: http://");
+    offset += sprintf(header + offset, "%s:%d\r\n", SERV_IP, SERV_PORT);
+    offset += sprintf(header + offset, "Content-Type: application/json\r\n");
+    this_thread::sleep_for(chrono::seconds(9));
+    char clean[100] = "GET /clean HTTP/1.1\r\nHost: http://10.128.189.187:5001\r\n\r\n";
+    send(targs->connectfd, clean, strlen(clean), 0);
+    this_thread::sleep_for(chrono::seconds(1));
+    char rtmsg[BUFSIZ];
+    recv(targs->connectfd, rtmsg, BUFSIZ, 0);
+    printf("return message: %s\n", rtmsg);
     while (true)
     {
-        this_thread::sleep_for(chrono::seconds(5));
-        char json[MAX_LENGTH];
+        this_thread::sleep_for(chrono::seconds(4));
         memset(json, 0, MAX_LENGTH * sizeof(char));
         memset(buf, 0, MAX_LENGTH * sizeof(char));
-        strcat(buf, header);
+        int ofs = 0;
+        ofs += sprintf(buf + ofs, "%s", header);
         makeJSON(json);
         int len = strlen(json);
-        strcat(buf, "Content-Length: ");
-        sprintf(buf, "%d\r\n", len);
-        strcat(buf, "\r\n");
-        strcat(buf, json);
-        strcat(buf, "\r\n");
+        ofs += sprintf(buf + ofs, "Content-Length: ");
+        ofs += sprintf(buf + ofs, "%d\r\n\r\n", len);
+        //printf("%s\n", json);
+        ofs += sprintf(buf + ofs, "%s\r\n\r\n", json);
         send(targs->connectfd, buf, strlen(buf), 0);
-        printf("Sketch updated.\n");
+        char rtmsg[BUFSIZ];
+        this_thread::sleep_for(chrono::seconds(1));
+        recv(targs->connectfd, rtmsg, BUFSIZ, 0);
+        printf("return message: %s\n", rtmsg);
     }
     close(targs->connectfd);
     free(buf);
     free(targs);
 }
 
-void recieveSketch(thread_args *targs, SketchRepository::iterator it)
+void recieveSketch(thread_args &targs)
 {
-    char buf[TOT_MEM_IN_BYTES];
+    ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *ptr = new ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>();
+    char *buf = (char *)malloc(sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
+    mtx.lock();
+    sketches.push_back(ptr);
+    SketchRepository::iterator it = sketches.end() - 1;
+    mtx.unlock();
     while (true)
     {
-        int len = recv(targs->connectfd, buf, TOT_MEM_IN_BYTES, 0);
-        if (len == TOT_MEM_IN_BYTES)
+        memset(buf, 0, sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
+        int len = 0;
+        while(len < sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>)){
+            char *buf_r = (char*)calloc(BUFSIZ, sizeof(char));
+            len += recv(targs.connectfd, buf_r, BUFSIZ, 0);
+            strcat(buf, buf_r);
+            free(buf_r);
+        }
+        if (len == sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>))
         {
             mtx.lock();
-            memcpy((*it), buf, sizeof(buf));
+            memcpy((*it), buf, sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
             mtx.unlock();
         }
     }
-    close(targs->connectfd);
-    free(targs);
+    close(targs.connectfd);
+    free(buf);
+    free(ptr);
+    sketches.erase(it);
 }
 
 int main()
@@ -212,12 +259,11 @@ int main()
 
     while (true)
     {
-        thread_args *targs = (thread_args *)malloc(sizeof(thread_args));
-        targs->connectfd = accept(listenfd, (struct sockaddr *)&targs->addr, &targs->addr_len);
-        ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = new ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>();
-        sketches.push_back(elastic);
-        SketchRepository::iterator it = sketches.end() - 1;
-        thread getSketch(recieveSketch, targs, it);
+        thread_args targs;
+        targs.connectfd = accept(listenfd, (struct sockaddr *)&targs.addr, &targs.addr_len);
+        printf("A new connection has accepted!\n");
+        fflush(stdout);
+        thread getSketch(recieveSketch, ref(targs));
         getSketch.detach();
     }
     close(listenfd);

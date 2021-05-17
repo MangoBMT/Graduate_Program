@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <atomic> 
 
 #include "../elastic/ElasticSketch.h"
 using namespace std;
@@ -10,7 +11,7 @@ using namespace std;
 #define BUCKET_NUM (HEAVY_MEM / 128)
 #define TOT_MEM_IN_BYTES (512 * 1024)
 
-#define SERV_IP "172.18.0.1"
+#define SERV_IP "172.18.0.10"
 #define SERV_PORT 32399
 struct FIVE_TUPLE
 {
@@ -25,13 +26,14 @@ ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = new ElasticSketch<BUCKET_
 typedef vector<FIVE_TUPLE> TRACE;
 TRACE traces;
 mutex mtx;
+atomic_int pnum(0);
 
 void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_char *packet)
 {
     //printf("1 packet captured.\n");
     struct FIVE_TUPLE *quintet = new struct FIVE_TUPLE;
-    char *key = new char[13];
-    char *content = new char[65535];
+    char *key = new char[KEY_LENGTH_13];
+    char *content = new char[BUFSIZ];
     //unsigned int len = pkthdr->len;
     unsigned int len = 1;
     memcpy(content, (const char *)packet, (int)pkthdr->caplen);
@@ -40,10 +42,31 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
     quintet->srcPort = *(uint16_t *)(content + 34);
     quintet->dstPort = *(uint16_t *)(content + 36);
     quintet->protocal = *(uint8_t *)(content + 23);
+    /*
+    printf("scrIP:%u.%u.%u.%u\ndstIP:%u.%u.%u.%u\nsrcPort:%d\ndstport:%d\nprotocal:%d\n\n", (uint8_t)content[26], (uint8_t)content[27], (uint8_t)content[28],
+           (uint8_t)content[29], (uint8_t)content[30], (uint8_t)content[31], (uint8_t)content[32], (uint8_t)content[33],
+           quintet->srcPort, quintet->dstPort, quintet->protocal);
+    */
+    char sip[20];
+    char dip[20];
+    sprintf(sip, "%u.%u.%u.%u", (uint8_t)content[26], (uint8_t)content[27], (uint8_t)content[28], (uint8_t)content[29]);
+    sprintf(dip, "%u.%u.%u.%u", (uint8_t)content[30], (uint8_t)content[31], (uint8_t)content[32], (uint8_t)content[33]);
+    if ((quintet->protocal != 6 && quintet->protocal != 17) || strcmp(dip, "172.18.0.2") != 0 || !strcmp(sip, SERV_IP))
+    {
+        /* Ignore if not TCP, UDP */
+        delete quintet;
+        delete[] key;
+        delete[] content;
+        return;
+    }
     memcpy(key, quintet, sizeof(quintet));
     mtx.lock();
     elastic->insert(key, len);
     mtx.unlock();
+    ++pnum;
+    if ((pnum % 100) == 0){
+        cout << pnum << "packets have been captured.\n";
+    }
     delete quintet;
     delete[] key;
     delete[] content;
@@ -67,6 +90,7 @@ void packetCapture()
         cout << "pcap_open_live() failed: " << errbuf << endl;
         return;
     }
+    pnum = 0;
     if (pcap_loop(descr, -1, packetHandler, NULL) < 0)
     {
         cout << "pcap_loop() failed: " << pcap_geterr(descr);
@@ -79,7 +103,7 @@ void deliverSketch()
     int cfd;
     struct sockaddr_in serv_addr;
     char *buf = NULL;
-    buf = (char *)malloc(TOT_MEM_IN_BYTES * sizeof(char));
+    buf = (char *)malloc(sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
 
     cfd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -89,14 +113,21 @@ void deliverSketch()
     inet_pton(AF_INET, SERV_IP, &serv_addr.sin_addr.s_addr);
 
     connect(cfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    int cnt = 0;
     while (true)
     {
-        this_thread::sleep_for(chrono::seconds(1));
+        this_thread::sleep_for(chrono::seconds(5));
         mtx.lock();
-        memcpy(buf, elastic, TOT_MEM_IN_BYTES);
+        memcpy(buf, elastic, sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
         mtx.unlock();
-        send(cfd, buf, TOT_MEM_IN_BYTES, 0);
-        printf("sketch sent.\n");
+        int len = 0;
+        while (len < sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>)){
+            len += send(cfd, buf + len, BUFSIZ, 0);
+        }
+        ++cnt;
+        if (!(cnt % 100)){
+            printf("updated sketch to server for %d times.\n", cnt);
+        }
     }
     close(cfd);
     free(buf);
