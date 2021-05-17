@@ -53,7 +53,7 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
     sprintf(dip, "%u.%u.%u.%u", (uint8_t)content[30], (uint8_t)content[31], (uint8_t)content[32], (uint8_t)content[33]);
     if ((quintet->protocal != 6 && quintet->protocal != 17) || strcmp(dip, "172.18.0.2") != 0 || !strcmp(sip, SERV_IP))
     {
-        /* Ignore if not TCP, UDP */
+        /* Ignore if not TCP, UDP, TX packets and packets for server */
         delete quintet;
         delete[] key;
         delete[] content;
@@ -65,7 +65,7 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
     mtx.unlock();
     ++pnum;
     if ((pnum % 100) == 0){
-        cout << pnum << "packets have been captured.\n";
+        cout << pnum << " packets have been captured.\n";
     }
     delete quintet;
     delete[] key;
@@ -112,17 +112,20 @@ void deliverSketch()
     serv_addr.sin_port = htons(SERV_PORT);
     inet_pton(AF_INET, SERV_IP, &serv_addr.sin_addr.s_addr);
 
-    connect(cfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+    if(connect(cfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1){
+        printf("connect failed.\n");
+        return;
+    }
     int cnt = 0;
     while (true)
     {
-        this_thread::sleep_for(chrono::seconds(5));
+        this_thread::sleep_for(chrono::seconds(1));
         mtx.lock();
         memcpy(buf, elastic, sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
         mtx.unlock();
-        int len = 0;
-        while (len < sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>)){
-            len += send(cfd, buf + len, BUFSIZ, 0);
+        if(send(cfd, buf, sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>), 0) == -1){
+            printf("send error.\n");
+            return;
         }
         ++cnt;
         if (!(cnt % 100)){

@@ -66,13 +66,15 @@ void makeJSON(char *json)
 
     for (SketchRepository::iterator it = sketches.begin(); it != sketches.end(); ++it)
     {
-        ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = (ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *)malloc(sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
+        ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = (ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *)calloc(sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>), 1);
         mtx.lock();
         if ((*it) == NULL){
             free(elastic);
             continue;
         }
         memcpy(elastic, (*it), sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
+        printf("%x, %x\n", elastic, (*it));
+        fflush(stdout);
         mtx.unlock();
         vector<int> tmp_dist;
         elastic->get_distribution(tmp_dist);
@@ -178,9 +180,9 @@ void sendMsg()
     char clean[100] = "GET /clean HTTP/1.1\r\nHost: http://10.128.189.187:5001\r\n\r\n";
     send(targs->connectfd, clean, strlen(clean), 0);
     this_thread::sleep_for(chrono::seconds(1));
-    char rtmsg[BUFSIZ];
-    recv(targs->connectfd, rtmsg, BUFSIZ, 0);
-    printf("return message: %s\n", rtmsg);
+    char msg[BUFSIZ];
+    recv(targs->connectfd, msg, BUFSIZ, 0);
+    printf("return message:\n %s\n", msg);
     while (true)
     {
         this_thread::sleep_for(chrono::seconds(4));
@@ -194,7 +196,10 @@ void sendMsg()
         ofs += sprintf(buf + ofs, "%d\r\n\r\n", len);
         //printf("%s\n", json);
         ofs += sprintf(buf + ofs, "%s\r\n\r\n", json);
-        send(targs->connectfd, buf, strlen(buf), 0);
+        printf("sending:\n%s\n", buf);
+        
+        int s = send(targs->connectfd, buf, strlen(buf), 0);
+        printf("%d bytes have been sent.\n", s);
         char rtmsg[BUFSIZ];
         this_thread::sleep_for(chrono::seconds(1));
         recv(targs->connectfd, rtmsg, BUFSIZ, 0);
@@ -217,12 +222,21 @@ void recieveSketch(thread_args &targs)
     {
         memset(buf, 0, sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
         int len = 0;
+        char *buf_r = (char *)malloc(BUFSIZ);
         while(len < sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>)){
-            char *buf_r = (char*)calloc(BUFSIZ, sizeof(char));
-            len += recv(targs.connectfd, buf_r, BUFSIZ, 0);
+            memset(buf_r, 0, BUFSIZ);
+            int r = recv(targs.connectfd, buf_r, BUFSIZ, 0);
+            if (r == -1){
+                printf("recv error.\n");
+                return;
+            }
+            //printf("%d bytes have recieved.\n", r);
+            len += r;
             strcat(buf, buf_r);
-            free(buf_r);
         }
+        free(buf_r);
+        //printf("Totally %d bytes have recieved.\n", len);
+        printf("Sketch is set to be %d bytes.\n",  sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
         if (len == sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>))
         {
             mtx.lock();
