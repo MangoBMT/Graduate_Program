@@ -7,7 +7,7 @@ template <int bucket_num>
 class HeavyPart
 {
 public:
-    alignas(64) Bucket buckets[bucket_num];
+    Bucket buckets[bucket_num];
     BOBHash32 *bobhash = NULL;
     HeavyPart()
     {

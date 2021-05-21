@@ -9,9 +9,9 @@
 #include "../elastic/ElasticSketch.h"
 using namespace std;
 
-#define HEAVY_MEM (128 * 1024)
-#define BUCKET_NUM (HEAVY_MEM / 128)
-#define TOT_MEM_IN_BYTES (512 * 1024)
+#define HEAVY_MEM (124 * 64)
+#define BUCKET_NUM (HEAVY_MEM / 124)
+#define TOT_MEM_IN_BYTES (16 * 1024)
 
 char serv_ip[20] =  "192.168.1.10";
 int serv_port = 32399;
@@ -25,7 +25,7 @@ struct FIVE_TUPLE
     uint8_t protocal;
 };
 
-ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = new ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>();
+ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES> *elastic = NULL;
 typedef vector<FIVE_TUPLE> TRACE;
 TRACE traces;
 mutex mtx;
@@ -45,6 +45,7 @@ int main(int argc, char *argv[])
 {
     read_args(argc, argv);
 
+    elastic = new ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>();
     struct ifaddrs *ifAddrStruct = NULL;
     getifaddrs(&ifAddrStruct);
     while (ifAddrStruct != NULL)
@@ -64,22 +65,21 @@ int main(int argc, char *argv[])
         printf("ip address error.\n");
         return 0;
     }
-    thread pcap(packetCapture);
+
     thread monitor(deliverSketch);
-    pcap.join();
+    packetCapture();
     monitor.join();
+    delete elastic;
     return 0;
 }
 
 void read_args(int argc, char *argv[])
 {
     int i = 1;
-    bool error = false;
 
     if (argc == 1)
     {
-        print_usage(argv[0]);
-        exit(EXIT_SUCCESS);
+        return;
     }
 
     while (i < argc)
@@ -188,6 +188,7 @@ void packetCapture()
     }
 }
 
+
 void deliverSketch()
 {
     int cfd;
@@ -202,28 +203,59 @@ void deliverSketch()
     serv_addr.sin_port = htons(serv_port);
     inet_pton(AF_INET, serv_ip, &serv_addr.sin_addr.s_addr);
 
-    if (connect(cfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
+    int timeout = 0;
+    while (connect(cfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) == -1)
     {
+        ++timeout;
         printf("connect failed.\n");
-        return;
+        this_thread::sleep_for(chrono::seconds(5));
+        if (timeout > 10){
+            printf("Timeout: Unable to connect to server.\n");
+            exit(EXIT_FAILURE);
+        }
     }
-    int cnt = 0;
+    int num[4];
+    sscanf(ip, "%d.%d.%d.%d", num, num + 1, num + 2, num + 3);
+    char id_str[4] = {0};
+    sprintf(id_str, "%d", num[3] - 1);
+    if (send(cfd, id_str, 4, 0) == -1)
+    {
+        printf("send error.\n");
+        exit(EXIT_FAILURE);
+    }
     while (true)
     {
-        this_thread::sleep_for(chrono::seconds(5));
+        this_thread::sleep_for(chrono::seconds(1));
+        /*
+        vector<pair<string, int>> heavy_hitters;
+        elastic->get_heavy_hitters(1, heavy_hitters);
+        printf("heavy hitters: <srcIP, count>, threshold=%d, number=%d\n", 1, (int)heavy_hitters.size());
+        for (int i = 0, j = 0; i < (int)heavy_hitters.size(); ++i)
+        {
+            FIVE_TUPLE quintet;
+            memcpy(&quintet, heavy_hitters[i].first.c_str(), KEY_LENGTH_13);
+            printf("<%.8x, %.8x, %d, %d, %d : %d>", quintet.srcIP, quintet.dstIP, quintet.srcPort, 
+                quintet.dstPort, quintet.protocal, heavy_hitters[i].second);
+            if (++j % 5 == 0)
+                printf("\n");
+            else
+                printf("\t");
+        }
+        printf("\n");
+        */
         mtx.lock();
         memcpy(buf, elastic, sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>));
         mtx.unlock();
         if (send(cfd, buf, sizeof(ElasticSketch<BUCKET_NUM, TOT_MEM_IN_BYTES>), 0) == -1)
         {
             printf("send error.\n");
-            return;
+            exit(EXIT_FAILURE);
         }
-        ++cnt;
-        if (!(cnt % 100))
-        {
-            printf("updated sketch to server for %d times.\n", cnt);
+        /*
+        if (pnum % 100000 == 0){
+            cout << pnum << " packets have recieved.\n";
         }
+        */
     }
     close(cfd);
     free(buf);
@@ -254,12 +286,11 @@ void packetHandler(u_char *userData, const struct pcap_pkthdr *pkthdr, const u_c
     sprintf(dip, "%u.%u.%u.%u", (uint8_t)content[30], (uint8_t)content[31], (uint8_t)content[32], (uint8_t)content[33]);
     if ((quintet->protocal == 6 || quintet->protocal == 17) && strcmp(dip, ip) == 0 && strcmp(sip, serv_ip) != 0)
     {
-        memcpy(key, quintet, sizeof(quintet));
+        memcpy(key, quintet, KEY_LENGTH_13);
         mtx.lock();
         elastic->insert(key, len);
         mtx.unlock();
         ++pnum;
-        cout << pnum << " packets have been captured.\n";
     }
     delete quintet;
     delete[] key;

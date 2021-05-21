@@ -8,7 +8,7 @@ template <int bucket_num, int tot_memory_in_bytes>
 class ElasticSketch
 {
 public:
-    static constexpr int heavy_mem = bucket_num * COUNTER_PER_BUCKET * 8;
+    static constexpr int heavy_mem = bucket_num * sizeof(Bucket);
     static constexpr int light_mem = tot_memory_in_bytes - heavy_mem;
 
     HeavyPart<bucket_num> heavy_part;
@@ -76,7 +76,7 @@ public:
         for (int i = 0; i < bucket_num; ++i)
             for (int j = 0; j < MAX_VALID_COUNTER; ++j)
             {
-                char key[13];
+                char key[KEY_LENGTH_13];
                 strncpy(key, heavy_part.buckets[i].key[j], KEY_LENGTH_13);
                 int val = query((char *)key);
                 if (val >= threshold)
